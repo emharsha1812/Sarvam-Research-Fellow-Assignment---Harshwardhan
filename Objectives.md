@@ -148,3 +148,93 @@ You can refer to the following files for the complete implementation:
 3. Transpose (Permutation): Reorders the dimensions as specified by the parsed pattern.
 
 4. Final Reshape: Combines or splits dimensions to produce the final desired shape.
+
+Here are common error conditions and messages found in the original `einops` library, primarily raised as `EinopsError`:
+
+**1. Basic Pattern Syntax Errors (Likely in `_validate_input` or early `_parse_pattern`)**
+
+- **Missing Separator:** Pattern doesn't contain `->`.
+  - `einops` Check: `if '->' not in pattern:` (`_validate_input` in your blueprint) or `pattern.split('->')` fails (`_parse_pattern`).
+  - Example Message: `"Pattern must contain '->' separator."` (or similar from `split` failure).
+- **Invalid Characters:** Characters other than alphanumeric, underscore, parentheses, space, ellipsis are used.
+  - `einops` Check: Iterates through characters in `ParsedExpression`.
+  - Example Message: `"Unknown character '{}'"`
+- **Unbalanced Parentheses:** Mismatched `(` and `)`.
+  - `einops` Check: Counts `(` vs `)` (`_validate_input`) and checks state during parsing (`ParsedExpression`).
+  - Example Message: `"Pattern has unbalanced parentheses."` or `"Brackets are not balanced"` or `"Imbalanced parentheses in expression: \"{}\""`
+
+**2. Ellipsis Misuse (Likely in `_parse_pattern`)**
+
+- **Dots Outside Ellipsis:** Using `.` characters not part of `...`.
+  - `einops` Check: Checks `.` count vs `...` count in `ParsedExpression`.
+  - Example Message: `"Expression may contain dots only inside ellipsis (...)"`
+- **Multiple Ellipses:** More than one `...` in the expression.
+  - `einops` Check: Counts `...` in `ParsedExpression`.
+  - Example Message: `"Expression may contain dots only inside ellipsis (...); only one ellipsis for tensor "`
+- **Ellipsis on RHS only:** `...` appears on the right side but not the left.
+  - `einops` Check: `if not left.has_ellipsis and rght.has_ellipsis:` in `_prepare_transformation_recipe`.
+  - Example Message: `"Ellipsis found in right side, but not left side of a pattern {}"`
+- **Ellipsis in Parentheses (LHS):** `(...)` on the left side is disallowed.
+  - `einops` Check: `if left.has_ellipsis and left.has_ellipsis_parenthesized:` in `_prepare_transformation_recipe`.
+  - Example Message: `"Ellipsis inside parenthesis in the left side is not allowed: {}"`
+
+**3. Axis Identifier Errors (Likely in `_parse_pattern`)**
+
+- **Invalid Identifier:** Axis name is not a valid Python identifier, or starts/ends with `_` (unless it _is_ `_` and allowed).
+  - `einops` Check: Uses `str.isidentifier()` and custom checks in `ParsedExpression.check_axis_name_return_reason`.
+  - Example Message: `"Invalid axis identifier: {}\n{}"` (includes reason).
+- **Duplicate Identifier:** Same axis name used multiple times on one side (LHS or RHS).
+  - `einops` Check: Uses sets (`self.identifiers`) in `ParsedExpression`.
+  - Example Message: `"Indexing expression contains duplicate dimension \"{}\""`
+- **Invalid Anonymous Axis:** Using `1` or non-positive integers for anonymous axes.
+  - `einops` Check: In `AnonymousAxis.__init__`.
+  - Example Message: `"No need to create anonymous axis of length 1..."` or `"Anonymous axis should have positive length, not {}"`
+- **Non-unitary Anonymous Axes (Rearrange):** Using numbers other than `1` in `rearrange`.
+  - `einops` Check: `if left.has_non_unitary_anonymous_axes or rght.has_non_unitary_anonymous_axes:` in `_prepare_transformation_recipe`.
+  - Example Message: `"Non-unitary anonymous axes are not supported in rearrange (exception is length 1)"`
+
+**4. Composition / Decomposition Errors (Likely in `_parse_pattern`)**
+
+- **Nested Parentheses:** Patterns like `a (b (c d)) e`.
+  - `einops` Check: Tracks nesting level in `ParsedExpression`.
+  - Example Message: `"Axis composition is one-level (brackets inside brackets not allowed)"`
+- **Multiple Unknowns in Composition:** Cannot infer dimensions if multiple axes within a single composition `(a b c)` are unknown.
+  - `einops` Check: `if len(unknown) > 1:` in `_prepare_transformation_recipe`.
+  - Example Message: `"Could not infer sizes for {}"`
+- **Shape Mismatch (Divisibility):** An axis cannot be evenly split according to the pattern and known dimensions.
+  - `einops` Check: `if length % known_product != 0:` in `_reconstruct_from_shape_uncached`.
+  - Example Message: `"Shape mismatch, can't divide axis of length {} in chunks of {}"`
+- **Shape Mismatch (Exact):** Product of known axes in a composition doesn't match the input dimension length when no unknowns are present.
+  - `einops` Check: `if length != known_product:` in `_reconstruct_from_shape_uncached`.
+  - Example Message: `"Shape mismatch, {} != {}"`
+
+**5. Semantic / Consistency Errors (Likely in `_parse_pattern`)**
+
+- **Axis Mismatch (Rearrange):** Axes found only on LHS or RHS for `rearrange`.
+  - `einops` Check: `set.symmetric_difference(left.identifiers, rght.identifiers)` in `_prepare_transformation_recipe`.
+  - Example Message: `"Identifiers only on one side of expression (should be on both): {}"`
+- **Axis Mismatch (Repeat/Reduce):** Checks for unexpected axes on LHS (repeat) or RHS (reduce).
+  - `einops` Check: `set.difference(...)` in `_prepare_transformation_recipe`.
+  - Example Messages: `"Unexpected identifiers on the left side of repeat: {}"` or `"Unexpected identifiers on the right side of reduce {}: {}"`
+- **Missing Axis Size (Repeat):** New axes introduced on RHS of `repeat` don't have their size specified in `axes_lengths`.
+  - `einops` Check: Checks `rght.identifiers` against `left.identifiers` and `axes_names` in `_prepare_transformation_recipe`.
+  - Example Message: `"Specify sizes for new axes in repeat: {}"`
+- **Dimension Number Mismatch:** Number of dimensions in tensor doesn't match the number specified in the pattern (considering ellipsis).
+  - `einops` Check: Compares `ndim` vs `len(left.composition)` in `_prepare_transformation_recipe`.
+  - Example Message: `"Wrong shape: expected {} dims. Received {}-dim tensor."` (or similar message for ellipsis case).
+
+**6. `axes_lengths` Argument Errors (Likely in `_validate_input` or `_parse_pattern`)**
+
+- **Invalid Name:** Key in `axes_lengths` is not a valid identifier.
+  - `einops` Check: `isinstance(name, str) or not name.isidentifier()` (`_validate_input` in your blueprint).
+  - Example Message: `"Axis name '{}' in axes_lengths is not a valid identifier."`
+- **Invalid Value:** Value in `axes_lengths` is not a positive integer.
+  - `einops` Check: `isinstance(length, int) or length <= 0` (`_validate_input` in your blueprint).
+  - Example Message: `"Length for axis '{}' must be a positive integer, got {}."`
+- **Unused Axis Name:** An axis name provided in `axes_lengths` doesn't appear in the pattern where it's needed (e.g., for a new axis on RHS).
+  - `einops` Check: `if elementary_axis not in axis_name2known_length:` in `_prepare_transformation_recipe`.
+  - Example Message: `"Axis {} is not used in transform"`
+
+**Recommendation:**
+
+You can define similar checks within your `_validate_input` and `_parse_pattern` functions. When a check fails, raise your custom `EinopsError` with a descriptive message, potentially mirroring some of the messages above. This makes debugging much easier for the user. The main `rearrange` function in `einops` also wraps the internal calls in a try-except block to add more context (like the full pattern, input shape, and axes_lengths) to any `EinopsError` raised from within. You might consider doing the same.

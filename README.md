@@ -35,7 +35,11 @@ The core logic follows a two-stage pipeline designed for robustness:
       - Ensures provided `axes_lengths` are syntactically valid.
     - **Crucially, if any validation fails, this stage raises a detailed, informative `Exception` immediately, preventing further processing.**
 
-2.  **Executor (Processing Stage):**
+The Executor process is two staged, first stage is parses the pattern # This step also performs semantic validation (divisibility, etc.)
+
+Second stage is that it Executes the Rearrangement
+
+1.  **Executor (Processing Stage):**
     - This stage only runs if the Checker stage passes successfully.
     - It invokes a **Parser** to deeply analyze the `pattern` string, identifying specific operations (split, merge, transpose, repeat) and axis relationships.
     - It performs **semantic validation** that requires combining information from the tensor's shape, the parsed pattern, and `axes_lengths` (e.g., checking if an axis length is divisible for a split operation).
