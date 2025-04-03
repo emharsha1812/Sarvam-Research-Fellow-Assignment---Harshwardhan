@@ -47,11 +47,6 @@ Second stage is that it Executes the Rearrangement
     - It executes these NumPy operations to transform the tensor.
     - It returns the final, rearranged NumPy ndarray.
 
-<!-- rearrange(tensor: np.ndarray, pattern: str, **axes_lengths) -> np.ndarray
-tensor (np.ndarray): The input NumPy array to manipulate.pattern (str): The einops-style pattern defining the transformation (e.g., 'b h w c -> b c h w').**axes_lengths (Dict[str, int]): Optional keyword arguments specifying the sizes of new axes introduced on the right side of the pattern or dimensions involved in splitting.5. Example Usageimport numpy as np
-# Assuming your implementation is in 'my_einops.py'
-# from my_einops import rearrange -->
-
 ### Workflow Diagram
 
 ![Workflow Diagram](diagram.svg)

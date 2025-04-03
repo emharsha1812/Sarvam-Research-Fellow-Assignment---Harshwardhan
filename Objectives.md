@@ -2,11 +2,11 @@ The objective of the test is to implement the `rearrange` operation of the einop
 
 This function should support the following operations
 
-- [ ] Reshaping of a tensor
-- [ ] Transpose of a tensor
-- [ ] Splitting of an axis of a tensor
-- [ ] Merging of an axis of a tensor
-- [ ] Repeating of an axis of a tensor
+- [x] Reshaping of a tensor
+- [x] Transpose of a tensor
+- [x] Splitting of an axis of a tensor
+- [x] Merging of an axis of a tensor
+- [x] Repeating of an axis of a tensor
 
 ### Obj
 
