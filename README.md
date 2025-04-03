@@ -103,4 +103,9 @@ result_e = rearrange(x_e, '... h w -> ... (h w)')
 
 # Install dependencies
 
-pip install numpy
+```pip install numpy```
+
+### Usecase 
+(Please checkout Check.ipynb for more such examples)
+![image](https://github.com/user-attachments/assets/ae061fac-49c1-4be6-9e4e-be33e25e2242)
+
