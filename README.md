@@ -2,6 +2,8 @@
 
 Repository for Sarvam Research Fellowship Application - Implementing Einops from scratch
 
+Open in Collabotary ➡️ [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/125M93a4r2cw1lZGbj273dv6wY91K11Ff?usp=sharing])
+
 # Einops Rearrange Implementation (NumPy)
 
 ## 1. Overview
