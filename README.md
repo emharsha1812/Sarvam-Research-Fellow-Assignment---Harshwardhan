@@ -1,113 +1,143 @@
-# Sarvam-Research-Fellow-Assignment---Harshwardhan
-
-Repository for Sarvam Research Fellowship Application - Implementing Einops from scratch
-
-Open in Collabotary ➡️ [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/125M93a4r2cw1lZGbj273dv6wY91K11Ff?usp=sharing])
-
-# Einops Rearrange Implementation (NumPy)
+# Einops Rearrange Implementation (NumPy) - Sarvam Research Fellowship Assignment
 
 ## 1. Overview
 
-A from-scratch implementation of the core `rearrange` operation inspired by the `einops` library.
-The primary goal is to replicate the flexible tensor manipulation capabilities of `einops.rearrange` using only Python and NumPy, without importing the original `einops` library.
+This project presents a Python implementation of the `rearrange` operation, drawing inspiration from the `einops` library. The implementation currently targets `numpy.ndarray` objects exclusively.
 
-Currently it supports only numpy ndarray
+## 2. Functionality
 
-## 2. Core Functionality
-
-The `rearrange` function is written such as we can manipulate NumPy ndarrays using intuitive, readable pattern strings. Supported operations include:
-
-- **Reshaping:** Changing tensor dimensions.
-- **Transposition:** Reordering axes.
-- **Splitting:** Dividing an axis into multiple new axes.
-- **Merging:** Combining multiple axes into one.
-- **Repeating:** Duplicating data along a new or existing dimension.
-
-## 3. Implementation Approach
-
-The core logic follows a two-stage pipeline designed for robustness:
-
-1.  **Checker (Validation Stage):**
-
-    - This initial stage receives the user's input (`tensor`, `pattern`, `**axes_lengths`).
-    - It performs crucial upfront validation:
-      - Checks if the input `tensor` is a NumPy ndarray.
-      - Validates the basic syntax of the `pattern` string.
-      - Performs preliminary checks on dimension compatibility (e.g., number of axes vs. pattern elements).
-      - Ensures provided `axes_lengths` are syntactically valid.
-    - **Crucially, if any validation fails, this stage raises a detailed, informative `Exception` immediately, preventing further processing.**
-
-The Executor process is two staged, first stage is parses the pattern # This step also performs semantic validation (divisibility, etc.)
-
-Second stage is that it Executes the Rearrangement
-
-1.  **Executor (Processing Stage):**
-    - This stage only runs if the Checker stage passes successfully.
-    - It invokes a **Parser** to deeply analyze the `pattern` string, identifying specific operations (split, merge, transpose, repeat) and axis relationships.
-    - It performs **semantic validation** that requires combining information from the tensor's shape, the parsed pattern, and `axes_lengths` (e.g., checking if an axis length is divisible for a split operation).
-    - It calculates the target shape and determines the precise sequence of NumPy operations (`reshape`, `transpose`, `repeat`/`tile`, etc.) needed.
-    - It executes these NumPy operations to transform the tensor.
-    - It returns the final, rearranged NumPy ndarray.
-
-### Workflow Diagram
-
-![Workflow Diagram](diagram.svg)
-
-_(This diagram illustrates the high-level flow. The Executor stage internally handles parsing and detailed semantic checks.)_
-
-## 4. Main Function
-
-### `rearrange`
+The core of this module is the `rearrange` function:
 
 ```python
-
-# --- Placeholder function for demonstration ---
 def rearrange(tensor: np.ndarray, pattern: str, **axes_lengths) -> np.ndarray:
-    print(f"Rearranging with pattern: {pattern}, lengths: {axes_lengths}")
-    # In the real implementation, actual rearrangement happens here
-    # Returning input shape for demonstration of call
-    print(f"Input shape: {tensor.shape}")
-    # This is just a dummy return, replace with actual result
-    return tensor # Replace with actual rearranged tensor
+```
+
+This function accepts a NumPy tensor, a pattern string describing the rearrangement, and optional keyword arguments specifying the lengths of newly introduced axes.
+
+It supports the following tensor manipulations through the pattern string:
+
+* **Transposition:** Reordering existing axes by changing their position between the left-hand side (LHS) and right-hand side (RHS) of the `->` separator.
+* **Reshaping (Merging Axes):** Combining multiple axes from the LHS into a single axis on the RHS using parentheses `()`. For example, `a b c -> (a b) c`.
+* **Reshaping (Splitting an Axis):** Dividing a single axis from the LHS into multiple axes on the RHS using parentheses `()`. The lengths of the new axes are inferred or specified via `axes_lengths`. For example, `(h w) c -> h w c`.
+* **Adding Dimensions:** Introducing new axes of length 1 by placing `1` on the RHS. For example, `h w -> h 1 w`.
+* **Removing Dimensions:** Removing axes of length 1 by omitting the `1` from the RHS (or including it within a composition on the LHS). For example, `h 1 w -> h w`.
+* **Repeating Axes:** Introducing new axes with specified lengths on the RHS. This can be done using:
+  * Numeric literals (e.g., `h w -> h w 3` repeats the last dimension 3 times)
+  * Named axes whose lengths are provided in `axes_lengths` (e.g., `h w -> h w b`, where `b=4` is passed)
+* **Ellipsis Handling:** Using `...` to represent any number of dimensions not explicitly mentioned in the pattern, allowing operations on specific trailing or leading dimensions regardless of the tensor's rank.
+
+## 3. Pattern String Syntax
+
+The `pattern` string follows conventions inspired by `einops`:
+
+* **Separator:** `->` divides the pattern into a left-hand side (LHS) describing the input tensor's axes and a right-hand side (RHS) describing the output tensor's axes.
+* **Identifiers:** Space-separated names (e.g., `batch`, `height`, `width`, `channels`) represent tensor axes. Each unique identifier must correspond to a dimension of the same size wherever it appears on the LHS and RHS (unless part of a composition).
+* **Composition:** Parentheses `()` group axes for merging on the RHS (e.g., `(h w)`) or splitting on the LHS (e.g., `(h w)`). Nested parentheses are not supported.
+* **Ellipsis:** `...` represents one or more dimensions not explicitly named. It can appear at most once on the LHS and, if present, must also appear on the RHS.
+* **Anonymous Axes (Length 1):** The number `1` can be used to add or remove dimensions of size one.
+* **Repetition Axes:** Numbers greater than 1 on the RHS indicate repetition (e.g., `h w -> h w 3`). New named axes on the RHS whose lengths are provided in `axes_lengths` also function as repetition axes (e.g., `h w -> h rep w` with `rep=4`).
+* **`axes_lengths`:** A dictionary providing integer lengths for axes that are newly introduced on the RHS (named repetitions) or axes involved in LHS splitting where their size cannot be inferred from the input tensor dimension alone.
+
+## 4. Implementation Details & Workflow
+
+The workflow diagram is as follows:
+
+![Workflow Diagram](diagram.svg) _(Diagram illustrating the processing stages)_
+
+1. **Initial Validation (`Checker` Stage):**
+   - Mapped to the `_validate_input` function
+   - Performs preliminary checks on the inputs _before_ attempting complex parsing or execution
+   - Verifies the tensor is a `numpy.ndarray`
+   - Checks for basic pattern string well-formedness (contains one `->`, balanced parentheses)
+   - Validates the format of keys and values provided in `axes_lengths` (identifiers, positive integers)
+
+   > **Purpose:** Fail fast with clear errors for fundamental input mistakes, preventing wasted computation. Errors raised: `EinopsError`.
+
+2. **Parsing, Semantic Validation & Planning (`Executor Stage 1: Semantic Validator`):**
+   - Mapped to the `_parse_pattern` function
+   - Performs in-depth analysis of the pattern string in relation to the input tensor's shape and `axes_lengths`
+   - Parses LHS and RHS expressions, identifying identifiers, compositions, ellipsis, and anonymous/repeat axes
+   - Resolves axis lengths: Matches LHS axes to tensor dimensions, infers lengths where possible (e.g., in compositions), and incorporates provided `axes_lengths`
+   - Performs _semantic_ validation:
+     - Checks for consistency of axis lengths across LHS and RHS
+     - Verifies tensor rank compatibility with the pattern
+     - Ensures dimension sizes are divisible for splitting operations
+     - Validates rules for ellipsis and anonymous/repeat axes (e.g., numbers > 1 only allowed on RHS for repeat)
+     - Confirms that all axes on LHS appear on RHS for `rearrange`, and any new axes on RHS have lengths defined
+   - Generates an execution plan (`ParsedPattern` object) detailing the required sequence of NumPy operations (reshapes, transpositions, repeats), target shapes, and indices
+
+   > **Purpose:** Ensure the requested rearrangement is logically possible and mathematically consistent with the input tensor _before_ attempting execution. Errors raised: `EinopsError`.
+
+3. **Execution (`Executor Stage 2: Operator`):**
+   - Mapped to the `_execute_rearrangement` function
+   - Takes the original tensor and the validated execution plan (`ParsedPattern`)
+   - Performs the sequence of NumPy operations as defined in the plan:
+     - Initial reshape based on LHS composition/anonymous axes
+     - Transpose axes according to the reordering specified between LHS and RHS
+     - Insert and repeat new dimensions based on numeric literals or named axes from `axes_lengths`
+     - Final reshape based on RHS composition/anonymous axes to achieve the target output shape
+
+   > **Purpose:** Efficiently execute the planned tensor manipulations using NumPy backend operations. Errors raised: Catches potential NumPy errors during execution (e.g., unexpected shape mismatch despite checks, though unlikely) and wraps them in `EinopsError`.
+
+## 5. Error Handling
+
+A custom exception class, `EinopsError(ValueError)`, is used for all validation and execution errors related to the rearrangement logic. The goal is to provide informative error messages that include context, such as the pattern string, input shape, and the specific reason for the failure, aiding in debugging. Errors are categorized based on the stage they occur in (input validation, semantic validation, execution).
+
+## 6. Usage Examples
+
+```python
+import numpy as np
+from my_einops import rearrange
 
 # --- Examples ---
 
 # Transpose
 print("--- Transpose ---")
 x_t = np.random.rand(3, 4)
-result_t = rearrange(x_t, 'h w -> w h')
+# result_t = rearrange(x_t, 'h w -> w h')
+print(f"Input shape: {x_t.shape}, Pattern: 'h w -> w h'")
 # Expected result shape: (4, 3)
 
 # Split an axis
 print("\n--- Split Axis ---")
 x_s = np.random.rand(12, 10)
-result_s = rearrange(x_s, '(h w) c -> h w c', h=3)
+# result_s = rearrange(x_s, '(h w) c -> h w c', h=3)
+print(f"Input shape: {x_s.shape}, Pattern: '(h w) c -> h w c', h=3")
 # Expected result shape: (3, 4, 10)
 
 # Merge axes
 print("\n--- Merge Axes ---")
 x_m = np.random.rand(3, 4, 5)
-result_m = rearrange(x_m, 'a b c -> (a b) c')
+# result_m = rearrange(x_m, 'a b c -> (a b) c')
+print(f"Input shape: {x_m.shape}, Pattern: 'a b c -> (a b) c'")
 # Expected result shape: (12, 5)
 
-# Repeat an axis
-print("\n--- Repeat Axis ---")
-x_r = np.random.rand(3, 1, 5)
-result_r = rearrange(x_r, 'a 1 c -> a b c', b=4)
+# Repeat an axis (using named axis length)
+print("\n--- Repeat Axis (Named) ---")
+x_r_named = np.random.rand(3, 1, 5)
+# result_r_named = rearrange(x_r_named, 'a 1 c -> a b c', b=4)
+print(f"Input shape: {x_r_named.shape}, Pattern: 'a 1 c -> a b c', b=4")
+# Expected result shape: (3, 4, 5)
+
+# Repeat an axis (using numeric literal)
+print("\n--- Repeat Axis (Numeric) ---")
+x_r_num = np.random.rand(3, 5)
+# result_r_num = rearrange(x_r_num, 'a c -> a 4 c')
+print(f"Input shape: {x_r_num.shape}, Pattern: 'a c -> a 4 c'")
 # Expected result shape: (3, 4, 5)
 
 # Handle batch dimensions (...)
 print("\n--- Ellipsis ---")
 x_e = np.random.rand(2, 3, 4, 5)
-result_e = rearrange(x_e, '... h w -> ... (h w)')
+# result_e = rearrange(x_e, '... h w -> ... (h w)')
+print(f"Input shape: {x_e.shape}, Pattern: '... h w -> ... (h w)'")
 # Expected result shape: (2, 3, 20)
 ```
 
-# Install dependencies
+## 7. Dependencies
 
-```pip install numpy```
+This implementation requires only NumPy:
 
-### Usecase 
-(Please checkout Check.ipynb for more such examples)
-![image](https://github.com/user-attachments/assets/ae061fac-49c1-4be6-9e4e-be33e25e2242)
-
+```bash
+pip install numpy
+```
