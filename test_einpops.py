@@ -1,5 +1,5 @@
-from my_einops import rearrange, EinopsError
 import numpy as np
+from my_einops import rearrange, EinopsError
 import pytest
 
 
@@ -100,9 +100,10 @@ def test_invalid_identifier_underscore_suffix():
         rearrange(np.zeros((2,)), 'a_ -> a')
 
 def test_unknown_axis_rhs_no_length():
-    # FIX: Use raw string and escape braces
-    with pytest.raises(EinopsError, match=r"Axes \{\'b'\} present on LHS but missing on RHS. Reduction is not supported by rearrange."):
+    expected_pattern = r"Axis 'c' appears on the right side \('a c'\)but is not defined on the left side \('a b'\) and its length is not specified via axes_lengths=\{\}"
+    with pytest.raises(EinopsError, match=expected_pattern):
         rearrange(np.zeros((2,3)), 'a b -> a c')
+
 
 def test_axis_mismatch_reduction():
     # FIX: Use raw string and escape braces
@@ -117,11 +118,11 @@ def test_non_unitary_anonymous_lhs_composition():
     with pytest.raises(EinopsError, match="Numeric literal '2' > 1 is not allowed in LHS composition"):
         rearrange(np.zeros((2,3)), '(a 2) -> a')
 
-# def test_non_unitary_anonymous_rhs_no_repeat():
-#     # FIX: Comment out - code now handles this correctly as a repeat
-#     # with pytest.raises(EinopsError, match="Internal inconsistency: Non-unitary anonymous axes"):
-#     #      rearrange(np.zeros((2,3)), 'a b -> a 2')
-#     pass
+def test_non_unitary_anonymous_rhs_no_repeat():
+    # FIX: Comment out - code now handles this correctly as a repeat
+    with pytest.raises(EinopsError, match="Internal inconsistency: Non-unitary anonymous axes"):
+         rearrange(np.zeros((2,3)), 'a b -> a 2')
+    pass
 
 def test_split_axis_incompatible_shape():
     with pytest.raises(EinopsError, match="is not divisible by product of known axes"):

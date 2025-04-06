@@ -1,8 +1,17 @@
+"""
+This module provides a custom implementation of the 'rearrange' operation,
+inspired by the einops library, designed to work specifically with NumPy arrays.
+
+It allows for flexible tensor manipulation using a string-based pattern,
+supporting operations like reshaping, transposing, splitting, merging and repeating
+"""
+
+
 import numpy as np
 from typing import Dict, List, Tuple, Any, Set, Union
 import dataclasses
 import math
-import pytest
+
 
 # --- 1. Custom Exception ---
 class EinopsError(ValueError):
@@ -17,6 +26,16 @@ class EinopsError(ValueError):
 class ParsedExpressionData:
     """
     Holds parsed information about one side (LHS or RHS) of the einops pattern.
+
+    Attributes:
+        raw_axes: A list representing the structure of the expression.
+                  Elements can be axis names (str), numeric literals (str),
+                  ellipsis ('...'), or lists of strings for compositions.
+        identifiers: A set of all unique named axes found in this expression.
+        has_ellipsis: Boolean flag indicating if '...' is present.
+        has_composition: Boolean flag indicating if axis composition `(...)` is present.
+        has_anonymous_axes: Boolean flag indicating if numeric literals > 1 are present.
+        has_trivial_anonymous_axis: Boolean flag indicating if '1' is present.
     """
     raw_axes: List[Union[str, List[str]]]
     identifiers: Set[str]
@@ -30,6 +49,26 @@ class ParsedPattern:
     """
     Represents the fully parsed and validated einops pattern, containing
     the execution plan for the rearrangement.
+    Attributes:
+        lhs_expression: ParsedExpressionData for the left-hand side.
+        decomposed_lhs_axes: List of atomic axis names on the LHS after resolving
+                             compositions and ellipsis.
+        rhs_expression: ParsedExpressionData for the right-hand side.
+        decomposed_rhs_axes_final: List of atomic axis names on the RHS, including
+                                   placeholders for repeats (`_repeat_N`), anonymous
+                                   axes (`_anon_1_`), and newly named axes.
+        resolved_axes_lengths: Dictionary mapping all axis names (LHS, RHS-new,
+                               ellipsis, inferred) to their integer lengths.
+        repeat_axes_info: Dictionary mapping axes designated for repetition (numeric
+                          literals like '3' or new named axes like 'b') to their
+                          target repeat length. Keys might be '_repeat_N' or 'b'.
+        needs_reshaping_input: Flag if LHS involves composition or '1'.
+        needs_repeating: Flag if RHS involves numeric literals > 1 or new named axes.
+        needs_transposing: Flag if the order of existing axes changes from LHS to RHS.
+        needs_reshaping_output: Flag if RHS involves composition or '1'.
+        shape_after_lhs_reshape: The tensor shape after applying LHS compositions/splits.
+        transpose_indices: Tuple of indices for np.transpose, if needed.
+        final_shape: The expected shape of the output tensor.
     """
     lhs_expression: ParsedExpressionData
     decomposed_lhs_axes: List[str]
@@ -49,6 +88,19 @@ class ParsedPattern:
 def rearrange(tensor: np.ndarray, pattern: str, **axes_lengths: int) -> np.ndarray:
     """
     Rearranges a NumPy ndarray based on the provided einops-style pattern.
+    Args:
+    tensor: The input NumPy array to rearrange.
+    pattern: The einops-style string pattern (e.g., 'b h w c -> b c h w').
+                Must contain '->'. Supports identifiers, parentheses for
+                composition/decomposition, ellipsis '...', anonymous axes '1',
+                and numeric literals or named axes on RHS for repetition.
+    **axes_lengths: Keyword arguments specifying the lengths of named axes
+                    that are either newly introduced on the RHS for repetition
+                    (e.g., b=4 in 'a -> a b') or are part of an LHS composition
+                    where the length cannot be inferred (e.g., h=10 in
+                    '(h w) c -> h w c' if the first dim size is ambiguous).
+
+    Returns: The rearranged NumPy ndarray.
     """
     try:
         # 1. Perform basic input validation (types, pattern structure)
@@ -64,12 +116,18 @@ def rearrange(tensor: np.ndarray, pattern: str, **axes_lengths: int) -> np.ndarr
     except EinopsError as e:
         raise e
     except Exception as e:
-        try:
-            if isinstance(tensor, np.ndarray):
-                context += f" for input shape {tensor.shape}"
-        except:
+        if isinstance(tensor, np.ndarray):
+            context = f" for input shape {tensor.shape} with axes_lengths={axes_lengths}."
+        else:
+            raise EinopsError(
+                f"Unhandled case in RHS parsing logic for axis group '{axis_group}'. "
+                f"Ensure all cases are properly handled."
+            )
+            raise EinopsError(
+                f"Axis '{axis_group}' in RHS is not found in resolved_axes_lengths or axes_lengths. "
+                f"Ensure all axes are properly defined or inferred."
+            )
             pass
-        context += f" with axes_lengths={axes_lengths}."
         raise RuntimeError(f"{context}\n -> {e.__class__.__name__}: {e}") from e
 
 # --- 4. Internal Helper Functions ---
@@ -78,6 +136,13 @@ def rearrange(tensor: np.ndarray, pattern: str, **axes_lengths: int) -> np.ndarr
 def _validate_input(tensor: np.ndarray, pattern: str, axes_lengths: Dict[str, int]) -> None:
     """
     Performs initial syntax and type checks on the inputs.
+    Args:
+        tensor: The input tensor.
+        pattern: The pattern string.
+        axes_lengths: Dictionary of provided axis lengths.
+
+    Raises:
+        EinopsError: If any basic validation check fails.
     """
     if not isinstance(tensor, np.ndarray):
         raise EinopsError("Input tensor must be a NumPy ndarray.")
@@ -104,11 +169,22 @@ def _validate_input(tensor: np.ndarray, pattern: str, axes_lengths: Dict[str, in
 def _parse_expression(expression_str: str) -> ParsedExpressionData:
     """
     Parses one side (LHS/RHS) of the pattern string into structured data.
+        Args:
+        expression_str: The string representing either the LHS or RHS of the pattern.
+
+    Returns:
+        A ParsedExpressionData object containing the structured representation
+        of the expression.
+
+    Raises:
+        EinopsError: If syntax errors like multiple ellipses, nested/unbalanced
+                     parentheses, invalid tokens, duplicate identifiers within
+                     the same scope (global or within a composition), or invalid
+                     numeric axes (<= 0) are found.
     """
     raw_axes: List[Union[str, List[str]]] = []
     identifiers: Set[str] = set()
     has_ellipsis = False
-    has_composition = False
     has_anonymous_axes = False
     has_trivial_anonymous_axis = False
     current_composition: List[str] = None
@@ -141,7 +217,6 @@ def _parse_expression(expression_str: str) -> ParsedExpressionData:
             paren_level += 1
             in_composition = True
             current_composition = []
-            has_composition = True
         elif token == ')':
             if paren_level == 0:
                 raise EinopsError(
@@ -236,6 +311,19 @@ def _parse_expression(expression_str: str) -> ParsedExpressionData:
 
 # --- 4c. Main Parsing Logic ---
 def _parse_pattern(pattern: str, tensor_shape: Tuple[int, ...], axes_lengths: Dict[str, int]) -> ParsedPattern:
+    """Parses the complete einops pattern, performs semantic validation,
+    and generates an execution plan (ParsedPattern)
+    Args:
+        pattern: The full einops pattern string (e.g., 'b (h w) c -> b h w c').
+        tensor_shape: The shape tuple of the input NumPy array.
+        axes_lengths: Dictionary of provided axis lengths for new/ambiguous axes.
+
+    Returns:
+        A ParsedPattern object containing the detailed execution plan.
+
+    Raises:
+        EinopsError: If any semantic validation fails
+    """
     lhs_str, rhs_str = pattern.split('->')
     lhs_str = lhs_str.strip()
     rhs_str = rhs_str.strip()
@@ -251,20 +339,17 @@ def _parse_pattern(pattern: str, tensor_shape: Tuple[int, ...], axes_lengths: Di
     current_dim_index = 0
     ellipsis_axes_names: List[str] = []
     ellipsis_start_index_in_shape = -1
-
     if lhs_data.has_ellipsis:
         non_ellipsis_dims_lhs = 0
         for ax_group in lhs_data.raw_axes:
             if ax_group != '...':
                 non_ellipsis_dims_lhs += 1
-
         if len(tensor_shape) < non_ellipsis_dims_lhs:
             raise EinopsError(
                 f"Input tensor has {len(tensor_shape)} dimensions, but pattern requires at least {non_ellipsis_dims_lhs} explicit axes (excluding ellipsis). Pattern: '{lhs_str}'"
             )
         ellipsis_ndim = len(tensor_shape) - non_ellipsis_dims_lhs
         ellipsis_axes_names = [f"_ellipsis_{i}" for i in range(ellipsis_ndim)]
-
         try:
             ellipsis_marker_index_in_raw = lhs_data.raw_axes.index('...')
             ellipsis_start_index_in_shape = ellipsis_marker_index_in_raw
@@ -366,7 +451,6 @@ def _parse_pattern(pattern: str, tensor_shape: Tuple[int, ...], axes_lengths: Di
                     raise EinopsError(
                         f"Numeric literal '{axis_group}' > 1 is not allowed on LHS of rearrange pattern."
                     )
-                    
                 else:
                     axis_name = axis_group
                     if axis_name in resolved_axes_lengths and resolved_axes_lengths[axis_name] != dim_size:
@@ -392,7 +476,6 @@ def _parse_pattern(pattern: str, tensor_shape: Tuple[int, ...], axes_lengths: Di
         raise EinopsError(
             f"Rank mismatch: Pattern '{lhs_str}' implies rank {expected_rank_from_pattern}, but tensor has rank {len(tensor_shape)}."
         )
-
     decomposed_rhs_axes_final: List[str] = []
     repeat_axes_info: Dict[str, int] = {}
     repeat_counter = 0
@@ -427,7 +510,10 @@ def _parse_pattern(pattern: str, tensor_shape: Tuple[int, ...], axes_lengths: Di
                     decomposed_rhs_axes_final.append(axis_name)
                     final_shape_list.append(axes_lengths[axis_name])
                 else:
-                    pass
+                    raise EinopsError(
+                        f"Unhandled case in RHS parsing logic for axis group '{axis_group}'. "
+                        f"Ensure all cases are properly handled."
+                    )
             decomposed_rhs_axes_final.extend(group_axes)
             if len(group_axes) > 0:
                 final_shape_list.append(group_len_prod)
@@ -453,7 +539,14 @@ def _parse_pattern(pattern: str, tensor_shape: Tuple[int, ...], axes_lengths: Di
                     decomposed_rhs_axes_final.append(axis_group)
                     final_shape_list.append(axes_lengths[axis_group])
                 else:
-                    pass
+                    context=""
+                    context+=f"Axis '{axis_group}' appears on the right side ('{rhs_str}')"
+                    context+=f"but is not defined on the left side ('{lhs_str}') "
+                    if len(axes_lengths)==0:
+                        context+=f"and its length is not specified via axes_lengths={axes_lengths}"
+                    raise EinopsError(
+                            context
+                        )
         else:
             raise EinopsError(
                 f"Internal parsing error: Unexpected element type '{type(axis_group)}' ('{axis_group}') in parsed RHS."
@@ -519,6 +612,24 @@ def _parse_pattern(pattern: str, tensor_shape: Tuple[int, ...], axes_lengths: Di
 
 # --- 4d. Execution (Executor Logic) ---
 def _execute_rearrangement(tensor: np.ndarray, plan: ParsedPattern) -> np.ndarray:
+    """
+    Executes the rearrangement plan using a sequence of NumPy operations.
+
+    Applies reshape, transpose, and repeat operations based on the flags
+    and data stored in the ParsedPattern object.
+
+    Args:
+        tensor: The original input NumPy array.
+        plan: The ParsedPattern object containing the execution plan.
+
+    Returns:
+        The transformed NumPy array.
+
+    Raises:
+        EinopsError: Wraps potential NumPy errors (ValueError, IndexError)
+                     that might occur during reshape, transpose, or repeat,
+                     adding context about the operation being performed.
+    """
     current_tensor = tensor
     current_shape = tensor.shape
     try:

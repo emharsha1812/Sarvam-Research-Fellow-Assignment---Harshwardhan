@@ -4,7 +4,37 @@
 
 This project presents a Python implementation of the `rearrange` operation, drawing inspiration from the `einops` library. The implementation currently targets `numpy.ndarray` objects exclusively.
 
-## 2. Functionality
+## 2. Dependencies
+
+This implementation requires only NumPy (for the main logic):
+
+```bash
+pip install numpy
+```
+
+For testing, pytest is needed
+
+```bash
+pip install pytest
+```
+
+### 3. How to run
+
+To use the implementation, you can import the `rearrange` function from the `my_einops` module:
+
+```python
+from my_einops import rearrange
+```
+
+The package includes comprehensive tests in the `test_einops.py` file. To execute all tests, run the following command from your terminal within the project directory:
+
+```bash
+pytest
+```
+
+It will run all the tests.
+
+## 4. Functionality
 
 The core of this module is the `rearrange` function:
 
@@ -26,7 +56,7 @@ It supports the following tensor manipulations through the pattern string:
   - Named axes whose lengths are provided in `axes_lengths` (e.g., `h w -> h w b`, where `b=4` is passed)
 - **Ellipsis Handling:** Using `...` to represent any number of dimensions not explicitly mentioned in the pattern, allowing operations on specific trailing or leading dimensions regardless of the tensor's rank.
 
-## 3. Pattern String Syntax
+## 5. Pattern String Syntax
 
 The `pattern` string follows conventions inspired by `einops`:
 
@@ -135,12 +165,4 @@ x_e = np.random.rand(2, 3, 4, 5)
 # result_e = rearrange(x_e, '... h w -> ... (h w)')
 print(f"Input shape: {x_e.shape}, Pattern: '... h w -> ... (h w)'")
 # Expected result shape: (2, 3, 20)
-```
-
-## 7. Dependencies
-
-This implementation requires only NumPy:
-
-```bash
-pip install numpy
 ```
