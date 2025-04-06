@@ -4,6 +4,8 @@
 
 This project presents a Python implementation of the `rearrange` operation, drawing inspiration from the `einops` library. The implementation currently targets `numpy.ndarray` objects exclusively.
 
+### Link to the Google Colab Notebook - [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/125M93a4r2cw1lZGbj273dv6wY91K11Ff?usp=sharing)
+
 ## 2. Dependencies
 
 This implementation requires only NumPy (for the main logic):
