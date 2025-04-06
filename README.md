@@ -53,10 +53,18 @@ It supports the following tensor manipulations through the pattern string:
 - **Reshaping (Splitting an Axis):** Dividing a single axis from the LHS into multiple axes on the RHS using parentheses `()`. The lengths of the new axes are inferred or specified via `axes_lengths`. For example, `(h w) c -> h w c`.
 - **Adding Dimensions:** Introducing new axes of length 1 by placing `1` on the RHS. For example, `h w -> h 1 w`.
 - **Removing Dimensions:** Removing axes of length 1 by omitting the `1` from the RHS (or including it within a composition on the LHS). For example, `h 1 w -> h w`.
+- - **Ellipsis Handling:** Using `...` to represent any number of dimensions not explicitly mentioned in the pattern, allowing operations on specific trailing or leading dimensions regardless of the tensor's rank.
 - **Repeating Axes:** Introducing new axes with specified lengths on the RHS. This can be done using:
   - Numeric literals (e.g., `h w -> h w 3` repeats the last dimension 3 times)
   - Named axes whose lengths are provided in `axes_lengths` (e.g., `h w -> h w b`, where `b=4` is passed)
-- **Ellipsis Handling:** Using `...` to represent any number of dimensions not explicitly mentioned in the pattern, allowing operations on specific trailing or leading dimensions regardless of the tensor's rank.
+  > **🎉 Important Improvement! 🎉**
+>
+> In the original Einops implementation, the following would fail:
+> ```python
+> rearrange(np.random.rand(3, 1, 5), 'a 1 c -> a b c', b=4)
+> ```
+>
+> But in ***this*** implementation, it correctly produces the shape: `(3, 4, 5)`. 🥇🎊✨
 
 ## 5. Pattern String Syntax
 
